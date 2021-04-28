@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.shortcuts import render, get_object_or_404, redirect
 from django.core.exceptions import ObjectDoesNotExist
 from django.views.generic import ListView, DetailView, View
@@ -5,8 +6,14 @@ from django.contrib import messages
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from .models import Item, Order, OrderItem, BillingAddress
+from .models import Item, Order, OrderItem, BillingAddress, Payment
 from .forms import CheckoutForm
+import stripe
+
+stripe.api_key = settings.STRIPE_SECRET_KEY
+
+# `source` is obtained with Stripe.js; see https://stripe.com/docs/payments/accept-a-payment-charges#web-create-token
+
 
 # Create your views here.
 class HomeView(ListView):
@@ -15,7 +22,7 @@ class HomeView(ListView):
     template_name = "home-page.html"
 
 
-class CheckoutView(LoginRequiredMixin, View):
+class CheckoutView(View):
     def get(self, *args, **kwargs):
         form = CheckoutForm()
         context = {
@@ -28,6 +35,7 @@ class CheckoutView(LoginRequiredMixin, View):
         try:
             order = Order.objects.get(user=self.request.user, ordered=False)
             if form.is_valid():
+                print(form.cleaned_data)
                 street_address = form.cleaned_data.get("street_address")
                 apartment_address = form.cleaned_data.get("apartment_address")
                 country = form.cleaned_data.get("country")
@@ -45,20 +53,78 @@ class CheckoutView(LoginRequiredMixin, View):
                 billing_address.save()
                 order.billing_address = billing_address
                 order.save()
-                return redirect("core:checkout")
+                if payment_option == "S":
+                    return redirect("core:payment", payment_option="stripe")
+                elif payment_option == "P":
+                    return redirect("core:payment", payment_option="paypal")
+                else:
+                    messages.error(self.request, "Failed checkout")
 
         except ObjectDoesNotExist:
             messages.error(self.request, "You do not have an active order")
             return redirect("core:order-summary")
-        return render(self.request, "order_summary.html", context)
-
-        messages.warning(self.request, "Failed Checkout")
         return redirect("core:checkout")
 
 
 class PaymentView(View):
     def get(self, *args, **kwargs):
         return render(self.request, "payment.html")
+
+    def post(self, *args, **kwargs):
+        order = Order.objects.get(user=self.request.user, ordered=False)
+        token = self.request.POST.get("stripeToken")
+        amount = int(order.get_total())
+
+        try:
+            charge = stripe.Charge.create(
+                amount=amount * 100,
+                currency="usd",
+                source=token,
+            )
+            payment = Payment()
+            payment.stripe_charge_id = charge.id
+            payment.user = self.request.user
+            payment.amount = order.get_total()
+            payment.save()
+
+            order.ordered = True
+            order.payment = payment
+            order.save()
+            messages.success(self.request, "Your order was successful")
+        except stripe.error.CardError as e:
+            # Since it's a decline, stripe.error.CardError will be caught
+            print("Status is: %s" % e.http_status)
+            print("Code is: %s" % e.code)
+            # param is '' in this case
+            print("Param is: %s" % e.param)
+            print("Message is: %s" % e.user_message)
+        except stripe.error.RateLimitError as e:
+            # Too many requests made to the API too quickly
+            messages.error(
+                self.request, "Too many requests made to the API too quickly"
+            )
+
+        except stripe.error.InvalidRequestError as e:
+            # Invalid parameters were supplied to Stripe's API
+            messages.error(
+                self.request, "Invalid parameters were supplied to Stripe's API"
+            )
+        except stripe.error.AuthenticationError as e:
+            # Authentication with Stripe's API failed
+            # (maybe you changed API keys recently)
+            messages.error(self.request, "Authentication with Stripe's API failed")
+        except stripe.error.APIConnectionError as e:
+            # Network communication with Stripe failed
+            messages.error(self.request, "Network communication with Stripe failed")
+        except stripe.error.StripeError as e:
+            # Display a very generic error to the user, and maybe send
+            # yourself an email
+            messages.error(self.request, "Display a very generic error")
+        except Exception as e:
+            # Something else happened, completely unrelated to Stripe
+            messages.error(self.request, "Something else happened")
+
+        return redirect("/")
 
 
 class ItemDetailView(DetailView):

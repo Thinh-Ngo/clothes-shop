@@ -67,16 +67,14 @@
             <hr>
 
             <div class="custom-control custom-checkbox">
-              <input {% if form.same_billing_address.value %} checked {% endif %} type="checkbox"
-                class="custom-control-input" id="same_billing_address">
-              {{ form.same_shipping_address }}
-              <label class="custom-control-label" for="same_shipping_address">Shipping address is the same as my billing
+              <input type="checkbox" class="custom-control-input" id="same_shipping_address"
+                name="same_shipping_address">
+              <label class="custom-control-label" for="same_shipping_address">Shipping
+                address is the same as my billing
                 address</label>
             </div>
             <div class="custom-control custom-checkbox">
-              <input {% if form.save_info.value %} checked {% endif %} type="checkbox" class="custom-control-input"
-                id="save_info">
-              {{ form.save_info }}
+              <input type="checkbox" class="custom-control-input" id="save_info" name="save_info">
               <label class="custom-control-label" for="save_info">Save this information for next time</label>
             </div>
 
@@ -86,7 +84,7 @@
               {% for value, name in form.fields.payment_option.choices %}
               <div class="custom-control custom-radio">
                 <input id="{{ name }}" name="payment_option" value="{{ value }}" type="radio"
-                  class="custom-control-input" checked required>
+                  class="custom-control-input" required>
                 <label class="custom-control-label" for="{{ name }}">{{ name }}</label>
               </div>
               {% endfor %}
