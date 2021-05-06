@@ -5,7 +5,8 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
 DEBUG = True
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SECRET_KEY = "-05sgp9!deq=q1nltm@^^2cc+v29i(tyybv3v2t77qi66czazj"
-STRIPE_SECRET_KEY = "sk_test_4eC39HqLyjWDarjtT1zdp7dc"
+STRIPE_SECRET_KEY = "sk_test_51IlOonFzjY46dDwnVU8kbDTsKbCVmCW5HS6mXzd2fTShBHE35JQRnRxJwnQiRSAaZbBIAR07CmHFpFKlNr3DuaYE00fF8u1to3"
+STRIPE_PULISHABLE_KEY = "pk_test_51IlOonFzjY46dDwnrlkqCW5MLzbpovWnM3XyjnbIvZLQiPzNJsUgrYMcuAHU9Y904w6a001SEB1dzobCQrlcE9Ce00n62v6oN2"
 ALLOWED_HOSTS = []
 
 INSTALLED_APPS = [

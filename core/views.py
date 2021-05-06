@@ -1,19 +1,19 @@
 from django.conf import settings
 from django.shortcuts import render, get_object_or_404, redirect
 from django.core.exceptions import ObjectDoesNotExist
-from django.views.generic import ListView, DetailView, View
+from django.views.generic import ListView, DetailView, View, TemplateView
 from django.contrib import messages
 from django.utils import timezone
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from .models import Item, Order, OrderItem, BillingAddress, Payment
+from django.http import JsonResponse, HttpResponse
 from .forms import CheckoutForm
 import stripe
+import json
 
 stripe.api_key = settings.STRIPE_SECRET_KEY
-
-# `source` is obtained with Stripe.js; see https://stripe.com/docs/payments/accept-a-payment-charges#web-create-token
-
+stripe_publishable_key = settings.STRIPE_PULISHABLE_KEY
 
 # Create your views here.
 class HomeView(ListView):
@@ -66,65 +66,42 @@ class CheckoutView(View):
         return redirect("core:checkout")
 
 
-class PaymentView(View):
-    def get(self, *args, **kwargs):
-        return render(self.request, "payment.html")
+class LandingPage(TemplateView):
+    template_name = "payment.html"
 
-    def post(self, *args, **kwargs):
-        order = Order.objects.get(user=self.request.user, ordered=False)
-        token = self.request.POST.get("stripeToken")
-        amount = int(order.get_total())
+    def get_context_data(self, **kwargs):
+        username = self.request.user.username
+        context = super(LandingPage, self).get_context_data(**kwargs)
+        context.update(
+            {
+                "stripe_publishable_key": stripe_publishable_key,
+                "username": username,
+            }
+        )
+        return context
 
+
+class StripeIntentView(View):
+    def post(self, request, *args, **kwargs):
         try:
-            charge = stripe.Charge.create(
-                amount=amount * 100,
+            order = Order.objects.get(user=request.user, ordered=False)
+            amount = int(order.get_total()) * 100
+            intent = stripe.PaymentIntent.create(
+                amount=amount,
                 currency="usd",
-                source=token,
             )
             payment = Payment()
-            payment.stripe_charge_id = charge.id
+            payment.stripe_charge_id = intent["id"]
             payment.user = self.request.user
-            payment.amount = order.get_total()
+            payment.amount = amount
             payment.save()
-
-            order.ordered = True
-            order.payment = payment
-            order.save()
-            messages.success(self.request, "Your order was successful")
-        except stripe.error.CardError as e:
-            # Since it's a decline, stripe.error.CardError will be caught
-            print("Status is: %s" % e.http_status)
-            print("Code is: %s" % e.code)
-            # param is '' in this case
-            print("Param is: %s" % e.param)
-            print("Message is: %s" % e.user_message)
-        except stripe.error.RateLimitError as e:
-            # Too many requests made to the API too quickly
-            messages.error(
-                self.request, "Too many requests made to the API too quickly"
+            return JsonResponse(
+                {
+                    "clientSecret": intent["client_secret"],
+                }
             )
-
-        except stripe.error.InvalidRequestError as e:
-            # Invalid parameters were supplied to Stripe's API
-            messages.error(
-                self.request, "Invalid parameters were supplied to Stripe's API"
-            )
-        except stripe.error.AuthenticationError as e:
-            # Authentication with Stripe's API failed
-            # (maybe you changed API keys recently)
-            messages.error(self.request, "Authentication with Stripe's API failed")
-        except stripe.error.APIConnectionError as e:
-            # Network communication with Stripe failed
-            messages.error(self.request, "Network communication with Stripe failed")
-        except stripe.error.StripeError as e:
-            # Display a very generic error to the user, and maybe send
-            # yourself an email
-            messages.error(self.request, "Display a very generic error")
         except Exception as e:
-            # Something else happened, completely unrelated to Stripe
-            messages.error(self.request, "Something else happened")
-
-        return redirect("/")
+            return JsonResponse({"error": str(e)})
 
 
 class ItemDetailView(DetailView):
@@ -240,3 +217,28 @@ def add_single_item_to_cart(request, slug):
         order = Order.objects.create(user=request.user, ordered_date=ordered_date)
         order.items.add(order_item)
     return redirect("core:order-summary")
+
+
+class WebHook(View):
+    def post(self, request, *args, **kwargs):
+        event = None
+        payload = request.data
+        try:
+            event = json.loads(payload)
+        except:
+            print("⚠️  Webhook error while parsing basic request." + str(e))
+            return jsonify(success=False)
+        # Handle the event
+        if event and event["type"] == "payment_intent.succeeded":
+            payment_intent = event["data"]["object"]  # contains a stripe.PaymentIntent
+            print("Payment for {} succeeded".format(payment_intent["amount"]))
+            # Then define and call a method to handle the successful payment intent.
+            # handle_payment_intent_succeeded(payment_intent)
+        elif event["type"] == "payment_method.attached":
+            payment_method = event["data"]["object"]  # contains a stripe.PaymentMethod
+            # Then define and call a method to handle the successful attachment of a PaymentMethod.
+            # handle_payment_method_attached(payment_method)
+        else:
+            # Unexpected event type
+            print("Unhandled event type {}".format(event["type"]))
+        return jsonify(success=True)
