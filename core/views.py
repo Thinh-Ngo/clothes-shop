@@ -95,6 +95,12 @@ class StripeIntentView(View):
             payment.user = self.request.user
             payment.amount = amount
             payment.save()
+
+            order_items = order.items.all()
+            order_items.update(ordered=True)
+            for item in order_items:
+                item.save()
+
             return JsonResponse(
                 {
                     "clientSecret": intent["client_secret"],
